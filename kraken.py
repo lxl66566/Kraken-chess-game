@@ -180,21 +180,33 @@ def converging_attack(pos:list) -> list:
 
     for i in range(0,len(DIR)):
         direction = DIR[i]
-        if judge_cross_the_border([pos[i] + direction[i] * 2 for i in range(2)]):
+
+        if( not judge_cross_the_border([pos[i] + direction[i] for i in range(2)]) 
+        and game[pos[0] + direction[0]][pos[1] + direction[1]]
+        and game[pos[0] + direction[0]][pos[1] + direction[1]].type == 0
+        and my_type == 2):                                                              # 对宝船单独判断
+            pos_0 = [pos[i] + direction[i] for i in range(2)]
+            temp = True
+            for direction2 in DIR:
+                pos_judge = [pos_0[i] + direction2[i] for i in range(2)]
+                if judge_cross_the_border(pos_judge):
+                    continue
+                if pos_judge in EXIT_POS or pos_judge == [3,3] or (game[pos_judge[0]][pos_judge[1]] and game[pos_judge[0]][pos_judge[1]].type == 2):
+                    continue
+                else:
+                    temp = False
+                    break
+            if temp:
+                attack_dir.append(i)
             continue
-        
+                    
+
+        if judge_cross_the_border([pos[i] + direction[i] * 2 for i in range(2)]):       # 二格越界
+            continue
+
         if friend([pos[i] + direction[i] for i in range(2)]) == 1 and friend([pos[i] + direction[i] * 2 for i in range(2)]) == 0:
             attack_dir.append(i)
-            attackdown_chequer = game[pos[0] + DIR[i][0]][pos[1] + DIR[i][1]]
-            if attackdown_chequer.type == 0:  # 四面夹击
-                for temp_direction in DIR:
-                    surrounding_pos = [attackdown_chequer.pos[i] + temp_direction[i] for i in range(2)]
-                    if judge_cross_the_border(surrounding_pos) or surrounding_pos in EXIT_POS or surrounding_pos == [3,3]:
-                        continue
-                    if (not game[surrounding_pos[0]][surrounding_pos[1]] or
-                    game[surrounding_pos[0]][surrounding_pos[1]].type != 2):
-                        attack_dir.pop()
-                        break
+
     return attack_dir
         
 def victory():
