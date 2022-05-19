@@ -2,8 +2,9 @@ from math import floor
 from re import A
 import pygame
 from sys import exit
+import os
 CHEQUER_SIZE = 76                       
-POS_WITHOUT_BORDER_OF_MAP = (59,117)     
+POS_WITHOUT_BORDER_OF_MAP = (56,117)     
 IMG = []                                # 0 宝船 1 护卫船 2 海怪 3,4,5是放大的
 MAXIMIZE_RATE = 1.2                     # 图片放大倍率
 RED = (255,10,10)
@@ -16,6 +17,7 @@ DIR = ((0,1),(0,-1),(1,0),(-1,0))
 FEASIBLE_REGIONS = []
 EXIT_POS = ([0,0],[0,6],[6,0],[6,6])
 VICTORY = 0                            # 1 Kraken wins 2 pirate wins
+RULE = False
 
 game = []
 round = False                           # false 海怪 true 船
@@ -91,7 +93,12 @@ def match_round_with_type(type:int) -> bool:
 def draw(screen):
     screen.fill((255,255,255))
     background = pygame.image.load('source/棋盘.png')
-    screen.blit(background, (0,0))
+    screen.blit(background, (-3,0))
+    # if RULE:
+    #     rule = pygame.transform.scale(pygame.image.load('source/规则.png'),(640,853))
+    #     screen = pygame.display.set_mode((640,853), 0, 32)
+    #     screen.blit(rule, (0,0))
+    #     return
     border_wait_for_draw = []
     for i in range(7):
         for j in range(7):
@@ -152,6 +159,8 @@ def move_is_available(pos:list) -> bool:
 def converging_attack(pos:list) -> list:
     attack_dir = []
     my_type = game[pos[0]][pos[1]].type
+    if my_type == 0:
+        return attack_dir
 
     def friend(pos:list) -> int:                # 0 friend 1 not friend 2 error
         if pos in EXIT_POS or (pos == [3,3] and not game[3][3]):
@@ -164,7 +173,7 @@ def converging_attack(pos:list) -> list:
             else:
                 return 1
         else:
-            if game[pos[0]][pos[1]].type != 2:
+            if game[pos[0]][pos[1]].type != 2 and game[pos[0]][pos[1]].type != 0:
                 return 0
             else:
                 return 1    
@@ -180,10 +189,10 @@ def converging_attack(pos:list) -> list:
             if attackdown_chequer.type == 0:  # 四面夹击
                 for temp_direction in DIR:
                     surrounding_pos = [attackdown_chequer.pos[i] + temp_direction[i] for i in range(2)]
-                    if (judge_cross_the_border(surrounding_pos) or 
-                    not game[surrounding_pos[0]][surrounding_pos[1]] or 
+                    if judge_cross_the_border(surrounding_pos) or surrounding_pos in EXIT_POS or surrounding_pos == [3,3]:
+                        continue
+                    if (not game[surrounding_pos[0]][surrounding_pos[1]] or
                     game[surrounding_pos[0]][surrounding_pos[1]].type != 2):
-                        print(f'dir {temp_direction} is poped')
                         attack_dir.pop()
                         break
     return attack_dir
@@ -207,7 +216,7 @@ if __name__ == "__main__":
     update_chequer_firstly()
 
     pygame.init()
-    screen = pygame.display.set_mode((649,725), 0, 32)
+    screen = pygame.display.set_mode((646,725), 0, 32)
     pygame.display.set_caption('kraken made by |x|')
     draw(screen)
 
@@ -222,8 +231,11 @@ if __name__ == "__main__":
                     continue
                 mousepos = pygame.mouse.get_pos()
                 if RECT_OF_CLICK_RULE.collidepoint(mousepos):
+                    # RULE = not RULE
+                    # screen = pygame.display.set_mode((646,725), 0, 32)
+                    # draw(screen)
+                    os.system('start source/规则.png')
                     break
-                    # rule
                 
                 relative_mousepos = absolutepos_to_relativepos(mousepos)
 
