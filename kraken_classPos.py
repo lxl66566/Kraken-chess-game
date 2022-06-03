@@ -1,21 +1,22 @@
+from copy import deepcopy
 from math import floor
-from re import A
+from pkgutil import read_code
 import pygame
 from sys import exit
 import os
 CHEQUER_SIZE = 76                       
-POS_WITHOUT_BORDER_OF_MAP = (56,117)     
+POS_WITHOUT_BORDER_OF_MAP = (56,117)
 IMG = []                                # 0 宝船 1 护卫船 2 海怪 3,4,5是放大的
 MAXIMIZE_RATE = 1.2                     # 图片放大倍率
 RED = (255,10,10)
 BLUE = (10,10,255)
 WIDTH_OF_BORDER = 2                     # highlight线宽      
 RECT_OF_CLICK_RULE = pygame.Rect(235,35,180,60)                 
-POS_FOR_MOSTERS = ((0,3),(1,1),(1,5),(3,0),(3,6),(5,1),(5,5),(6,3))
-POS_FOR_FRIGATES = ((3,2),(2,3),(4,3),(3,4))
-DIR = ((0,1),(0,-1),(1,0),(-1,0))
+POS_FOR_MOSTERS = [(0,3),(1,1),(1,5),(3,0),(3,6),(5,1),(5,5),(6,3)]
+POS_FOR_FRIGATES = [(3,2),(2,3),(4,3),(3,4)]
+DIR = [(0,1),(0,-1),(1,0),(-1,0)]
 FEASIBLE_REGIONS = []
-EXIT_POS = ([0,0],[0,6],[6,0],[6,6])
+EXIT_POS = [[0,0],[0,6],[6,0],[6,6]]
 VICTORY = 0                            # 1 Kraken wins 2 pirate wins
 RULE = False
 
@@ -23,48 +24,104 @@ game = []
 round = False                           # false 海怪 true 船
 stage = False                           # false 点击 true 移动
 
+class Pos:
+    def __init__(self,x,y):
+        self.x = x
+        self.y = y
+    
+    def __add__(self,other):
+        return Pos(self.x + other.x, self.y + other.y)
+
+    def __iadd__(self,other):
+        self.x += other.x
+        self.y += other.y
+        return self
+
+    def __sub__(self,other):
+        return Pos(self.x - other.x, self.y - other.y)
+
+    def __str__(self) -> str:
+        return f'({self.x},{self.y})'
+
+    def __eq__(self, __o: object) -> bool:
+        return self.x == __o.x and self.y == __o.y
+
+    def multiply(self,n):
+        return Pos(self.x * n, self.y * n)
+
+    def divide(self,n):
+        return Pos(self.x / n, self.y / n)
+
+    def floor(self):
+        self.x = floor(self.x)
+        self.y = floor(self.y)
+        return self
+
+    def to_absolute(self):
+        return self.multiply(CHEQUER_SIZE) + POS_WITHOUT_BORDER_OF_MAP
+
+    def to_relative(self):
+        return ((self - POS_WITHOUT_BORDER_OF_MAP).divide(CHEQUER_SIZE)).floor()
+
+    def to_tuple(self):
+        return (self.x, self.y)
+
+    def cross_border(self) -> bool:
+        return not (0 <= self.x <= 6 and 0 <= self.y <= 6)
+
+POS_WITHOUT_BORDER_OF_MAP = Pos(*POS_WITHOUT_BORDER_OF_MAP)
+
 class chequer:
-    def __init__(self,pos:list,type):
+    def __init__(self,pos:Pos,type:int):
         self.pos = pos
         self.type = type
-        # self.highlight = False
+
     def draw_me(self,screen):
-        screen.blit(IMG[self.type],relativepos_to_absolutepos(self.pos))
-        # print(relativepos_to_absolutepos(self.pos))
+        screen.blit(IMG[self.type],self.pos.to_absolute().to_tuple())
+
     def draw_me_big(self,screen):
-        temp_pos = relativepos_to_absolutepos(self.pos)
-        for i in range(2):
-            temp_pos[i] -= CHEQUER_SIZE * (MAXIMIZE_RATE - 1) / 2
-        screen.blit(IMG[self.type + 3],floor_pos(temp_pos))
+        temp_pos = self.pos.to_absolute()
+        temp_pos += Pos(- CHEQUER_SIZE * (MAXIMIZE_RATE - 1) / 2, - CHEQUER_SIZE * (MAXIMIZE_RATE - 1) / 2)
+        screen.blit(IMG[self.type + 3],temp_pos.floor().to_tuple())
 
 choose : chequer
 
-def floor_pos(pos:list):
-    return [floor(x) for x in pos]
+def Game(pos:Pos):
+    return game[pos.x][pos.y]
+
+def transform_tuple_list_to_pos():
+    global POS_FOR_MOSTERS,POS_FOR_FRIGATES,DIR,EXIT_POS
+    def transform_iter(iter):
+        for i in range(0,len(iter)):
+            iter[i] = Pos(*iter[i])
+    transform_iter(POS_FOR_MOSTERS)
+    transform_iter(POS_FOR_FRIGATES)
+    transform_iter(DIR)
+    transform_iter(EXIT_POS)
         
-def draw_border(screen,pos:list,color:tuple):  # pos为绝对坐标
+def draw_border(screen,pos:Pos,color:tuple):  # pos为relative
+    pos = pos.to_absolute()
     pos_for_draw = []       # 画线点对
 
-    def draw_line_third(pos,dir:bool):
-        if dir:                         # 横向画三段线
-            pos_for_draw.append(pos)
-            pos_for_draw.append(floor_pos([pos[0] + CHEQUER_SIZE / 3 , pos[1]]))
-            pos_for_draw.append(floor_pos([pos[0] + CHEQUER_SIZE * 2 / 3 , pos[1]]))
-            pos_for_draw.append(floor_pos([pos[0] + CHEQUER_SIZE, pos[1]]))
-        else:                           # 纵向画三段线
-            pos_for_draw.append(pos)
-            pos_for_draw.append(floor_pos([pos[0], pos[1] + CHEQUER_SIZE / 3 ]))
-            pos_for_draw.append(floor_pos([pos[0], pos[1] + CHEQUER_SIZE * 2 / 3 ]))
-            pos_for_draw.append(floor_pos([pos[0], pos[1] + CHEQUER_SIZE]))
+    def draw_line_third(pos1:Pos,dir:bool):
+        pos_for_draw.append(pos1)
+        temp = deepcopy(pos1)
+        for i in range(3):
+            if dir:
+                temp.x += CHEQUER_SIZE // 3
+            else:
+                temp.y += CHEQUER_SIZE // 3
+            pos_for_draw.append(temp)
         
     draw_line_third(pos,True)
     draw_line_third(pos,False)
-    draw_line_third([pos[0] + CHEQUER_SIZE,pos[1]],False)
-    draw_line_third([pos[0],pos[1] + CHEQUER_SIZE],True)
+    draw_line_third(pos + Pos(CHEQUER_SIZE,0),False)
+    draw_line_third(pos + Pos(0,CHEQUER_SIZE),True)
 
-    for i in range(0, len(pos_for_draw),2):
-        pygame.draw.line(screen,color,pos_for_draw[i],pos_for_draw[i + 1],WIDTH_OF_BORDER)
-    # 这里不可用for pos1,pos2 in pos_for_draw: 不然pos1与pos2不会是列表
+    for i in range(0,len(pos_for_draw),2):
+        pos1 = pos_for_draw[i]
+        pos2 = pos_for_draw[i + 1]
+        pygame.draw.line(screen,color,pos1.to_tuple(),pos2.to_tuple(),WIDTH_OF_BORDER)
 
 def init_image():
     global IMG
@@ -75,15 +132,9 @@ def init_image():
     temp = pygame.transform.scale(pygame.image.load('source/海怪.png'),(CHEQUER_SIZE,CHEQUER_SIZE))
     IMG.append(temp)
     for i in range(3):
-        temp = pygame.transform.scale(IMG[i],floor_pos((CHEQUER_SIZE * MAXIMIZE_RATE,CHEQUER_SIZE * MAXIMIZE_RATE)))
+        scale_length = floor(CHEQUER_SIZE * MAXIMIZE_RATE)
+        temp = pygame.transform.scale(IMG[i],(scale_length,scale_length))
         IMG.append(temp)
-
-
-def relativepos_to_absolutepos(pos):
-    return [POS_WITHOUT_BORDER_OF_MAP[i] + pos[i] * CHEQUER_SIZE for i in range(2)]
-
-def absolutepos_to_relativepos(pos):
-    return [floor((pos[i] - POS_WITHOUT_BORDER_OF_MAP[i]) / CHEQUER_SIZE) for i in range(2)]
 
 def match_round_with_type(type:int) -> bool:
     if (round and 0 <= type <= 1) or (not round and type == 2):
@@ -94,18 +145,13 @@ def draw(screen):
     screen.fill((255,255,255))
     background = pygame.image.load('source/棋盘.png')
     screen.blit(background, (-3,0))
-    # if RULE:
-    #     rule = pygame.transform.scale(pygame.image.load('source/规则.png'),(640,853))
-    #     screen = pygame.display.set_mode((640,853), 0, 32)
-    #     screen.blit(rule, (0,0))
-    #     return
     border_wait_for_draw = []
     for i in range(7):
         for j in range(7):
             if game[i][j]:
                 game[i][j].draw_me(screen)
                 if match_round_with_type(game[i][j].type):
-                    border_wait_for_draw.append(relativepos_to_absolutepos(game[i][j].pos))
+                    border_wait_for_draw.append(game[i][j].pos)
     for i in border_wait_for_draw:
         draw_border(screen,i,RED)
     
@@ -124,10 +170,10 @@ def update_chequer_firstly():
         for j in range(7):
             game[i].append(0)   # 使用0占位
     for temp_pos in POS_FOR_MOSTERS:
-        game[temp_pos[0]][temp_pos[1]] = chequer(list(temp_pos),2)
+        game[temp_pos.x][temp_pos.y] = chequer(temp_pos,2)
     for temp_pos in POS_FOR_FRIGATES:
-        game[temp_pos[0]][temp_pos[1]] = chequer(list(temp_pos),1)
-    game[3][3] = chequer([3,3],0)
+        game[temp_pos.x][temp_pos.y] = chequer(temp_pos,1)
+    game[3][3] = chequer(Pos(3,3),0)
 
 def update_feasible_region_in_stage_1():
     global FEASIBLE_REGIONS
@@ -136,19 +182,20 @@ def update_feasible_region_in_stage_1():
         for j in range(7):
             if game[i][j] and match_round_with_type(game[i][j].type):
                 FEASIBLE_REGIONS.append(game[i][j].pos)         # 可行域为棋子
+    
+    # for i in range(FEASIBLE_REGIONS):
+    #     print(i,end=' ')
             
-def click_is_available(pos:list) -> bool:
-    if pos in FEASIBLE_REGIONS:
-        return True
+def click_is_available(pos:Pos) -> bool:
+    for available_region in FEASIBLE_REGIONS:
+        if pos == available_region:
+            return True
     return False
 
-def judge_cross_the_border(pos:list) -> bool:
-    return not (0 <= pos[0] <= 6 and 0 <= pos[1] <= 6)
-
-def move_is_available(pos:list) -> bool:
-    if judge_cross_the_border(pos):
+def move_is_available(pos:Pos) -> bool:
+    if pos.cross_border():
         return False
-    if game[pos[0]][pos[1]]:
+    if Game(pos):
         return False
     if not round and pos in EXIT_POS:
         return False
@@ -156,44 +203,38 @@ def move_is_available(pos:list) -> bool:
         return False
     return True
 
-def converging_attack(pos:list) -> list:
+def converging_attack(pos:Pos) -> list:
     attack_dir = []
-    my_type = game[pos[0]][pos[1]].type
+    my_type = Game(pos).type
     if my_type == 0:
         return attack_dir
 
-    def friend(pos:list) -> int:                # 0 friend 1 not friend 2 error
-        if pos in EXIT_POS or (pos == [3,3] and not game[3][3]):
+    def friend(pos:Pos) -> int:                # 0 friend 1 not friend 2 error
+        if pos in EXIT_POS or (pos == Pos(3,3) and not game[3][3]):
             return 0
-        if not game[pos[0]][pos[1]]:
+        if not Game(pos):
             return 2
         if my_type == 2:
-            if game[pos[0]][pos[1]].type == my_type:
+            if Game(pos).type == my_type:
                 return 0
             else:
                 return 1
         else:
-            if game[pos[0]][pos[1]].type == 0:
-                return 2
-            if game[pos[0]][pos[1]].type == 1:
+            if Game(pos).type != 2 and Game(pos).type != 0:
                 return 0
             else:
                 return 1    
 
     for i in range(0,len(DIR)):
         direction = DIR[i]
-
-        if( not judge_cross_the_border([pos[i] + direction[i] for i in range(2)]) 
-        and game[pos[0] + direction[0]][pos[1] + direction[1]]
-        and game[pos[0] + direction[0]][pos[1] + direction[1]].type == 0
-        and my_type == 2):                                                              # 对宝船单独判断
-            pos_0 = [pos[i] + direction[i] for i in range(2)]
+        dirpos1 = pos + direction
+        if( not dirpos1.cross_border() and Game(dirpos1) and Game(dirpos1).type == 0 and my_type == 2):     # 对宝船单独判断
             temp = True
             for direction2 in DIR:
-                pos_judge = [pos_0[i] + direction2[i] for i in range(2)]
-                if judge_cross_the_border(pos_judge):
+                pos_judge = dirpos1 + direction2
+                if pos_judge.cross_border():
                     continue
-                if pos_judge in EXIT_POS or pos_judge == [3,3] or (game[pos_judge[0]][pos_judge[1]] and game[pos_judge[0]][pos_judge[1]].type == 2):
+                if pos_judge in EXIT_POS or pos_judge == Pos(3,3) or (Game(pos_judge) and Game(pos_judge).type == 2):
                     continue
                 else:
                     temp = False
@@ -202,11 +243,11 @@ def converging_attack(pos:list) -> list:
                 attack_dir.append(i)
             continue
                     
-
-        if judge_cross_the_border([pos[i] + direction[i] * 2 for i in range(2)]):       # 二格越界
+        dirpos2 = direction + dirpos1
+        if dirpos2.cross_border() :       # 二格越界
             continue
 
-        if friend([pos[i] + direction[i] for i in range(2)]) == 1 and friend([pos[i] + direction[i] * 2 for i in range(2)]) == 0:
+        if friend(dirpos1) == 1 and friend(dirpos2) == 0:
             attack_dir.append(i)
 
     return attack_dir
@@ -214,7 +255,7 @@ def converging_attack(pos:list) -> list:
 def victory():
     global VICTORY
     for exit_pos in EXIT_POS:
-        if game[exit_pos[0]][exit_pos[1]] and game[exit_pos[0]][exit_pos[1]].type == 0:
+        if Game(exit_pos) and Game(exit_pos).type == 0:
             VICTORY = 2
             return
     update_feasible_region_in_stage_1()
@@ -226,6 +267,7 @@ def victory():
 
 if __name__ == "__main__":
 
+    transform_tuple_list_to_pos()
     init_image()
     update_chequer_firstly()
 
@@ -245,31 +287,29 @@ if __name__ == "__main__":
                     continue
                 mousepos = pygame.mouse.get_pos()
                 if RECT_OF_CLICK_RULE.collidepoint(mousepos):
-                    # RULE = not RULE
-                    # screen = pygame.display.set_mode((646,725), 0, 32)
-                    # draw(screen)
                     os.system('start source/规则.png')
                     break
                 
-                relative_mousepos = absolutepos_to_relativepos(mousepos)
+                relative_mousepos = Pos(*mousepos).to_relative()
 
                 if not stage:                                               # 点击自己棋子的阶段
                     update_feasible_region_in_stage_1()
+
                     if not click_is_available(relative_mousepos):
                         break
                     
-                    choose = game[relative_mousepos[0]][relative_mousepos[1]]
+                    choose = Game(relative_mousepos)
                     stage = not stage
                     FEASIBLE_REGIONS.clear()
                     for direction in DIR:
-                        now_pos = [relative_mousepos[i] + direction[i] for i in range(2)]
+                        now_pos = relative_mousepos + direction
                         while move_is_available(now_pos):
-                            if now_pos != [3,3] or choose.type == 0:
+                            if now_pos != Pos(3,3) or choose.type == 0:
                                 FEASIBLE_REGIONS.append(now_pos)
-                            now_pos = [now_pos[i] + direction[i] for i in range(2)]
+                            now_pos += direction
                             
                     for available_region in FEASIBLE_REGIONS:
-                        draw_border(screen,relativepos_to_absolutepos(available_region),BLUE)
+                        draw_border(screen,available_region,BLUE)
                     choose.draw_me_big(screen)
                 
                 else:
@@ -279,15 +319,16 @@ if __name__ == "__main__":
                         break
                     round = not round
 
-                    game[choose.pos[0]][choose.pos[1]] = 0
+                    game[choose.pos.x][choose.pos.y] = 0
                     choose.pos = relative_mousepos
-                    game[relative_mousepos[0]][relative_mousepos[1]] = choose
+                    game[relative_mousepos.x][relative_mousepos.y] = choose
 
                     attack_dir = converging_attack(relative_mousepos)
                     for direction in attack_dir:
-                        if game[relative_mousepos[0] + DIR[direction][0]][relative_mousepos[1] + DIR[direction][1]].type == 0:
+                        temp = relative_mousepos + direction
+                        if Game(temp).type == 0:
                             VICTORY = 1
-                        game[relative_mousepos[0] + DIR[direction][0]][relative_mousepos[1] + DIR[direction][1]] = 0
+                        game[temp.x][temp.y] = 0
                     
                     victory()
                     draw(screen)
